@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="ht">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tradiksyon an Kreyòl</title>
+<style>
+  :root { --bg: #fdfbf7; --fg: #1d1b18; --muted: #6b6560; --card: #fff; --line: #e8e2d9; --accent: #00209f; --size: 24px; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #14130f; --fg: #f3efe8; --muted: #a39d94; --card: #1f1d18; --line: #2f2c25; --accent: #8aa4ff; } }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { position: sticky; top: 0; background: var(--bg); border-bottom: 1px solid var(--line); padding: 10px 16px; display: flex; gap: 8px; align-items: center; z-index: 1; }
+  header h1 { font-size: 17px; margin: 0; flex: 1; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: #c33; display: inline-block; margin-right: 6px; }
+  .dot.on { background: #2a9d4b; }
+  button { font: inherit; font-size: 16px; padding: 8px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); color: var(--fg); }
+  button[aria-pressed="true"] { background: var(--accent); color: #fff; border-color: var(--accent); }
+  main { padding: 16px; padding-bottom: 40vh; max-width: 760px; margin: 0 auto; }
+  .line { font-size: var(--size); line-height: 1.4; margin: 0 0 18px; }
+  .line .en { display: none; font-size: 0.6em; color: var(--muted); margin-top: 4px; }
+  body.show-en .line .en { display: block; }
+  .line:last-child { font-weight: 600; }
+  .empty { color: var(--muted); font-size: 20px; text-align: center; margin-top: 30vh; }
+  #jump { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); display: none; background: var(--accent); color: #fff; border: 0; }
+</style>
+</head>
+<body>
+<header>
+  <h1><span class="dot" id="dot"></span>Kreyòl</h1>
+  <button id="smaller" aria-label="Lèt pi piti">A−</button>
+  <button id="bigger" aria-label="Lèt pi gwo">A+</button>
+  <button id="en" aria-pressed="false">EN</button>
+</header>
+<main id="list"><p class="empty" id="empty">N ap tann sèvis la kòmanse…</p></main>
+<button id="jump">↓ Dènye mo yo</button>
+<script>
+  const list = document.getElementById("list");
+  const root = document.documentElement;
+  const store = { get(k) { try { return localStorage.getItem(k); } catch { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
+
+  let size = Number(store.get("size")) || 24;
+  const applySize = () => root.style.setProperty("--size", size + "px");
+  applySize();
+  document.getElementById("bigger").onclick = () => { size = Math.min(48, size + 3); store.set("size", size); applySize(); };
+  document.getElementById("smaller").onclick = () => { size = Math.max(16, size - 3); store.set("size", size); applySize(); };
+
+  const enBtn = document.getElementById("en");
+  const setEn = (on) => { document.body.classList.toggle("show-en", on); enBtn.setAttribute("aria-pressed", on); store.set("en", on ? "1" : ""); };
+  setEn(store.get("en") === "1");
+  enBtn.onclick = () => setEn(!document.body.classList.contains("show-en"));
+
+  const nearBottom = () => window.innerHeight + window.scrollY > document.body.scrollHeight - 200;
+  const jump = document.getElementById("jump");
+  jump.onclick = () => window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
+  window.addEventListener("scroll", () => { if (nearBottom()) jump.style.display = "none"; });
+
+  function add(c) {
+    document.getElementById("empty")?.remove();
+    const follow = nearBottom();
+    const p = document.createElement("p");
+    p.className = "line";
+    p.textContent = c.ht;
+    const en = document.createElement("span");
+    en.className = "en";
+    en.textContent = c.en;
+    p.appendChild(en);
+    list.appendChild(p);
+    if (follow) window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
+    else jump.style.display = "block";
+  }
+
+  const dot = document.getElementById("dot");
+  const es = new EventSource("/events");
+  es.onopen = () => dot.classList.add("on");
+  es.onerror = () => dot.classList.remove("on");
+  es.addEventListener("history", (e) => { list.querySelectorAll(".line").forEach((n) => n.remove()); JSON.parse(e.data).forEach(add); });
+  es.addEventListener("caption", (e) => add(JSON.parse(e.data)));
+  es.addEventListener("clear", () => list.querySelectorAll(".line").forEach((n) => n.remove()));
+</script>
+</body>
+</html>

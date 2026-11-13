@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kreyòl Live Operator</title>
+<style>
+  :root { --bg: #f6f4f0; --fg: #1d1b18; --muted: #6b6560; --card: #fff; --line: #e3ddd3; --accent: #00209f; --red: #d21034; --green: #2a9d4b; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #14130f; --fg: #f3efe8; --muted: #a39d94; --card: #1f1d18; --line: #34302a; --accent: #8aa4ff; } }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font-family: system-ui, -apple-system, "Segoe UI", sans-serif; font-size: 15px; }
+  header { padding: 14px 20px; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  header h1 { margin: 0; font-size: 19px; flex: 1; }
+  .muted { color: var(--muted); font-size: 13px; }
+  .grid { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 16px; padding: 16px 20px; }
+  @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+  section { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; margin-bottom: 16px; }
+  h2 { font-size: 14px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 0 0 10px; }
+  button { font: inherit; padding: 8px 14px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--fg); cursor: pointer; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  button.live { background: var(--red); border-color: var(--red); color: #fff; }
+  input, select { font: inherit; padding: 7px 9px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); width: 100%; }
+  label { display: block; margin: 8px 0 3px; font-size: 13px; color: var(--muted); }
+  .row { display: flex; gap: 8px; align-items: center; }
+  #interim { min-height: 1.6em; color: var(--muted); font-style: italic; margin: 10px 0 0; }
+  #log { max-height: 60vh; overflow-y: auto; }
+  .pair { padding: 10px 0; border-bottom: 1px solid var(--line); }
+  .pair .en { color: var(--muted); font-size: 13px; }
+  .pair .ht { font-size: 18px; margin-top: 2px; }
+  .pair.pending .ht { color: var(--muted); }
+  #qr svg { width: 180px; height: 180px; background: #fff; border-radius: 8px; }
+  #errors { color: var(--red); font-size: 13px; min-height: 1em; }
+  code { font-size: 12px; word-break: break-all; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Kreyòl Live · Operator</h1>
+  <span class="muted" id="meta"></span>
+</header>
+<div class="grid">
+  <div>
+    <section>
+      <h2>Listen</h2>
+      <div class="row">
+        <button class="primary" id="listen">● Start listening</button>
+        <select id="lang" style="width:auto">
+          <option value="en-US">English (US)</option>
+          <option value="en-GB">English (UK)</option>
+        </select>
+        <button id="demo">Run demo sermon</button>
+        <button id="clear">Clear screens</button>
+      </div>
+      <p id="interim"></p>
+      <form id="manual" class="row" style="margin-top:8px">
+        <input id="manualText" placeholder="Or type English here (announcements, testing) and press Enter">
+        <button>Translate</button>
+      </form>
+      <p id="errors"></p>
+    </section>
+    <section>
+      <h2>Live captions</h2>
+      <div id="log"></div>
+    </section>
+  </div>
+  <div>
+    <section>
+      <h2>Phones</h2>
+      <div id="qr"></div>
+      <p class="muted">Scan to read along in Kreyòl (same Wi-Fi):<br><code id="phoneUrl"></code></p>
+      <p class="muted">Big screen / OBS page:<br><code id="displayUrl"></code></p>
+    </section>
+    <section>
+      <h2>ProPresenter</h2>
+      <label><input type="checkbox" id="ppEnabled" style="width:auto"> Send captions to ProPresenter</label>
+      <label for="ppHost">Computer running ProPresenter (IP)</label>
+      <input id="ppHost">
+      <label for="ppPort">Network port</label>
+      <input id="ppPort" type="number">
+      <label for="ppMessage">Message name</label>
+      <input id="ppMessage">
+      <label for="ppToken">Text token name</label>
+      <input id="ppToken">
+      <div class="row" style="margin-top:10px">
+        <button id="ppSave">Save</button>
+        <button id="ppTest">Test connection</button>
+      </div>
+      <p class="muted" id="ppResult"></p>
+    </section>
+  </div>
+</div>
+<script>
+  const $ = (id) => document.getElementById(id);
+  const errors = $("errors");
+  const showError = (msg) => { errors.textContent = msg; };
+
+  // ---------- caption log ----------
+  function addPair(en) {
+    const div = document.createElement("div");
+    div.className = "pair pending";
+    div.innerHTML = '<div class="en"></div><div class="ht">…</div>';
+    div.querySelector(".en").textContent = en;
+    $("log").prepend(div);
+    return div;
+  }
+
+  async function sendLine(en) {
+    en = en.trim();
+    if (!en) return;
+    const div = addPair(en);
+    try {
+      const res = await fetch("/api/line", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: en }) });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || res.statusText);
+      div.classList.remove("pending");
+      div.querySelector(".ht").textContent = data.ht || "(skipped)";
+      showError("");
+    } catch (e) {
+      div.querySelector(".ht").textContent = "⚠ translation failed";
+      showError("Translation error: " + e.message);
+    }
+  }
+
+  $("manual").onsubmit = (e) => { e.preventDefault(); sendLine($("manualText").value); $("manualText").value = ""; };
+  $("clear").onclick = () => fetch("/api/clear", { method: "POST" });
+
+  // ---------- speech recognition (Chrome / Edge) ----------
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  let rec = null, listening = false;
+  const btn = $("listen");
+
+  function startRec() {
+    rec = new SR();
+    rec.lang = $("lang").value;
+    rec.continuous = true;
+    rec.interimResults = true;
+    rec.onresult = (e) => {
+      let interim = "";
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const r = e.results[i];
+        if (r.isFinal) sendLine(r[0].transcript);
+        else interim += r[0].transcript;
+      }
+      $("interim").textContent = interim;
+    };
+    rec.onerror = (e) => { if (e.error !== "no-speech" && e.error !== "aborted") showError("Microphone: " + e.error); };
+    // Chrome stops after silence or ~a minute; restart automatically while live
+    rec.onend = () => { if (listening) setTimeout(() => { try { startRec(); } catch {} }, 250); };
+    rec.start();
+  }
+
+  btn.onclick = () => {
+    if (!SR) return showError("Speech recognition needs Google Chrome or Microsoft Edge on this computer.");
+    listening = !listening;
+    btn.textContent = listening ? "■ Stop listening" : "● Start listening";
+    btn.className = listening ? "live" : "primary";
+    if (listening) startRec(); else { rec?.stop(); $("interim").textContent = ""; }
+  };
+
+  // ---------- demo ----------
+  const DEMO = [
+    "Good morning church, praise the Lord!",
+    "Please open your Bibles to John chapter 3, verse 16.",
+    "For God so loved the world that he gave his only begotten Son.",
+    "Brothers and sisters, God has not forgotten you.",
+    "Whatever you are going through this week, his grace is enough.",
+    "Let us pray together before we continue.",
+  ];
+  let demoTimer = null;
+  $("demo").onclick = () => {
+    if (demoTimer) { clearInterval(demoTimer); demoTimer = null; $("demo").textContent = "Run demo sermon"; return; }
+    let i = 0;
+    $("demo").textContent = "Stop demo";
+    const next = () => { if (i >= DEMO.length) { clearInterval(demoTimer); demoTimer = null; $("demo").textContent = "Run demo sermon"; return; } sendLine(DEMO[i++]); };
+    next();
+    demoTimer = setInterval(next, 4000);
+  };
+
+  // ---------- info + ProPresenter settings ----------
+  async function loadInfo() {
+    const info = await (await fetch("/api/info")).json();
+    $("qr").innerHTML = info.qr;
+    $("phoneUrl").textContent = info.phoneUrl;
+    $("displayUrl").textContent = info.displayUrl;
+    $("meta").textContent = `Translator: ${info.model}`;
+    const p = info.propresenter;
+    $("ppEnabled").checked = p.enabled;
+    $("ppHost").value = p.host;
+    $("ppPort").value = p.port;
+    $("ppMessage").value = p.messageId;
+    $("ppToken").value = p.tokenName;
+  }
+  async function savePro() {
+    await fetch("/api/propresenter", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enabled: $("ppEnabled").checked, host: $("ppHost").value, port: $("ppPort").value, messageId: $("ppMessage").value, tokenName: $("ppToken").value }),
+    });
+    $("ppResult").textContent = "Saved.";
+  }
+  $("ppSave").onclick = savePro;
+  $("ppEnabled").onchange = savePro;
+  $("ppTest").onclick = async () => {
+    await savePro();
+    $("ppResult").textContent = "Testing…";
+    const r = await (await fetch("/api/propresenter/test", { method: "POST" })).json();
+    $("ppResult").textContent = r.ok
+      ? `Connected ✓ Messages found: ${Array.isArray(r.messages) ? r.messages.join(", ") || "(none — create one)" : "ok"}`
+      : `Could not connect: ${r.error}. Check that Network is enabled in ProPresenter and the IP/port match.`;
+  };
+
+  // Show translator / ProPresenter errors pushed from the server
+  const es = new EventSource("/events");
+  es.addEventListener("status", (e) => {
+    const s = JSON.parse(e.data);
+    if (s.propresenter) $("ppResult").textContent = "ProPresenter: " + s.propresenter;
+    if (s.translator) showError("Translator: " + s.translator);
+  });
+
+  loadInfo();
+</script>
+</body>
+</html>
