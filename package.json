@@ -1,0 +1,16 @@
+{
+  "name": "kreyol-live",
+  "version": "1.0.0",
+  "description": "Live English to Haitian Creole captions for church services",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "demo": "TRANSLATOR=mock node server.js"
+  },
+  "license": "ISC",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^1.8.0",
+    "qrcode": "^1.5.4"
+  },
+  "type": "module"
+}
